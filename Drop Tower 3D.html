@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!-- saved from url=(0071)file:///C:/Users/Daniil/Downloads/Telegram%20Desktop/drop_tower_3d.html -->
+<html lang="ru"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#130d32">
+<title>Drop Tower 3D</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#130d32;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;touch-action:manipulation}
+canvas{display:block;width:100%;height:100%;touch-action:manipulation}
+#hud{position:absolute;top:14px;left:0;right:0;text-align:center;pointer-events:none;text-shadow:0 3px 14px #08051b}
+#score{font-size:46px;line-height:1;font-weight:900;letter-spacing:1px}
+#caption{font-size:11px;letter-spacing:3px;color:#c9baff;margin-top:6px}
+#best{font-size:12px;color:#d7caff;margin-top:7px}
+#hint{position:absolute;bottom:22px;left:0;right:0;text-align:center;font-size:14px;color:#e5d9ff;pointer-events:none;text-shadow:0 2px 8px #09051c}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#100927a8;backdrop-filter:blur(7px)}
+.panel{width:min(86%,340px);padding:27px 22px;border:1px solid #ffffff30;border-radius:25px;background:linear-gradient(145deg,#3b246f,#19113d);text-align:center;box-shadow:0 20px 70px #0009}
+h1{font-size:29px;margin:0 0 9px;letter-spacing:1px}p{color:#d8cbff;line-height:1.5;margin:0 0 20px}
+button{border:0;border-radius:15px;padding:14px 30px;color:white;font-size:17px;font-weight:850;background:linear-gradient(135deg,#ff68c5,#a33dff);box-shadow:0 6px 0 #68248e}
+button:active{transform:translateY(3px);box-shadow:0 3px 0 #68248e}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="game" width="1152" height="736"></canvas>
+<div id="hud"><div id="score">0</div><div id="caption">DROP TOWER · 3D</div><div id="best">РЕКОРД: 17</div></div>
+<div id="hint">Нажми в любом месте, чтобы сбросить платформу</div>
+<div id="overlay"><div class="panel"><h1>DROP TOWER 3D</h1><p>Сбрасывай объёмные платформы точно на башню. Построй самую высокую башню!</p><button id="start">Играть</button></div></div>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best'),overlay=document.getElementById('overlay'),startBtn=document.getElementById('start'),hint=document.getElementById('hint');
+let W=0,H=0,D=1,score=0,best=+(localStorage.dropTower3DBest||0),playing=false,blocks=[],moving=null,dir=1,speed=2.7,cam=0,tick=0;
+const depth=28,thick=22,palette=['#ff5dbb','#e64cc7','#bd55ed','#9153e8','#6d58df','#e66bda'];
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*D;canvas.height=H*D;ctx.setTransform(D,0,0,D,0,0);draw()}
+function project(x,y,z=0){return [W/2+x, H*.72-y+cam-z*.58]}
+function poly(p,c){ctx.beginPath();ctx.moveTo(...p[0]);for(let i=1;i<p.length;i++)ctx.lineTo(...p[i]);ctx.closePath();ctx.fillStyle=c;ctx.fill()}
+function roundedGlow(){let g=ctx.createRadialGradient(W*.5,H*.45,10,W*.5,H*.45,W*.7);g.addColorStop(0,'#56358a55');g.addColorStop(1,'#120c3000');ctx.fillStyle=g;ctx.fillRect(0,0,W,H)}
+function drawPlatform(b,active=false){
+ const x=b.x,w=b.w,y=b.y,z=0,d=depth,h=thick;
+ const top=[[x-w/2,y],[x+w/2,y],[x+w/2+d,y-d*.58],[x-w/2+d,y-d*.58]];
+ const front=[[x-w/2,y],[x+w/2,y],[x+w/2,y+h],[x-w/2,y+h]];
+ const side=[[x+w/2,y],[x+w/2+d,y-d*.58],[x+w/2+d,y+h-d*.58],[x+w/2,y+h]];
+ let P=a=>a.map(v=>project(v[0],v[1]));
+ // shadow
+ ctx.save();ctx.shadowColor=active?'#ff70d8':'#07031d';ctx.shadowBlur=active?22:8;
+ poly(P(front),b.color);ctx.restore();
+ poly(P(side),shade(b.color,-75));
+ poly(P(top),active?'#ffd0f0':shade(b.color,45));
+ // glossy edge
+ ctx.strokeStyle='#ffffff55';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(...P(top[0]));ctx.lineTo(...P(top[1]));ctx.stroke();
+}
+function shade(hex,amt){let n=parseInt(hex.slice(1),16),r=Math.max(0,Math.min(255,(n>>16)+amt)),g=Math.max(0,Math.min(255,((n>>8)&255)+amt)),b=Math.max(0,Math.min(255,(n&255)+amt));return '#'+(1<<24|r<<16|g<<8|b).toString(16).slice(1)}
+function drawRing(b){
+ let [cx,cy]=project(b.x,b.y),rx=Math.max(18,b.w*.43),ry=rx*.42;
+ ctx.save();ctx.translate(cx,cy-8);ctx.shadowColor='#ff5ec8';ctx.shadowBlur=25;
+ let grad=ctx.createLinearGradient(-rx,-ry,rx,ry);grad.addColorStop(0,'#fff0fb');grad.addColorStop(.35,'#ff83d2');grad.addColorStop(.72,'#d943b7');grad.addColorStop(1,'#8c2cbd');
+ ctx.beginPath();ctx.ellipse(0,0,rx,ry,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+ ctx.globalCompositeOperation='destination-out';ctx.beginPath();ctx.ellipse(0,0,rx*.47,ry*.48,0,0,Math.PI*2);ctx.fill();ctx.globalCompositeOperation='source-over';
+ ctx.beginPath();ctx.ellipse(0,-2,rx*.73,ry*.66,0,Math.PI,Math.PI*2);ctx.strokeStyle='#ffffff99';ctx.lineWidth=3;ctx.stroke();
+ ctx.restore();
+}
+function draw(){
+ if(!W||!H)return;ctx.clearRect(0,0,W,H);roundedGlow();
+ // distant neon columns and stars
+ for(let i=0;i<13;i++){let xx=(i*113+37)%W, yy=(i*83+60)%(H*.55);ctx.fillStyle='#ffffff24';ctx.beginPath();ctx.arc(xx,yy,1+(i%2),0,Math.PI*2);ctx.fill()}
+ // floor plane
+ let floor=H*.72+cam+60;
+ poly([[W*.12,floor+110],[W*.88,floor+110],[W*.69,floor-15],[W*.31,floor-15]],'#201747');
+ ctx.strokeStyle='#7b55b944';ctx.lineWidth=1;
+ for(let i=0;i<8;i++){let yy=floor+10+i*17;ctx.beginPath();ctx.moveTo(W*.18+i*4,yy);ctx.lineTo(W*.82-i*4,yy);ctx.stroke()}
+ blocks.forEach(b=>drawPlatform(b));
+ if(moving){drawRing(moving)}
+ // glow around stack base
+ let g=ctx.createRadialGradient(W/2,H*.75,5,W/2,H*.75,Math.min(W,H)*.35);g.addColorStop(0,'#ed4ab522');g.addColorStop(1,'#ed4ab500');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+function start(){
+ score=0;speed=2.7;dir=1;cam=0;blocks=[{x:0,y:0,w:Math.min(W*.48,190),color:'#6948c8'}];
+ moving={x:-W*.27,y:52,w:blocks[0].w,color:palette[0]};playing=true;overlay.classList.add('hidden');scoreEl.textContent='0';bestEl.textContent='РЕКОРД: '+best;hint.textContent='Нажми, чтобы сбросить платформу';loop()
+}
+function drop(){
+ if(!playing||!moving)return;let prev=blocks[blocks.length-1],delta=moving.x-prev.x,overlap=prev.w-Math.abs(delta);
+ if(overlap<13){end();return}
+ let nextW=overlap;let nextX=prev.x+delta/2;
+ blocks.push({x:nextX,y:prev.y+34,w:nextW,color:palette[score%palette.length]});
+ score++;scoreEl.textContent=score;if(score>best){best=score;localStorage.dropTower3DBest=best;bestEl.textContent='РЕКОРД: '+best}
+ speed=Math.min(7,speed+.14);moving={x:dir>0?-W*.35:W*.35,y:blocks[blocks.length-1].y+52,w:nextW,color:palette[score%palette.length]};
+ if(blocks.length>8){cam+=34;blocks.forEach(b=>b.y-=34);moving.y-=34}
+ hint.textContent=score%5===0?'Отлично! Башня растёт!':'Нажми, чтобы сбросить платформу';
+}
+function end(){playing=false;overlay.classList.remove('hidden');overlay.querySelector('h1').textContent='ИГРА ОКОНЧЕНА';overlay.querySelector('p').textContent='Твой результат: '+score+' · Рекорд: '+best;startBtn.textContent='Играть снова';hint.textContent=''}
+function loop(){if(!playing)return;tick++;moving.x+=speed*dir;if(moving.x>W*.36)dir=-1;if(moving.x<-W*.36)dir=1;draw();requestAnimationFrame(loop)}
+canvas.addEventListener('pointerdown',drop);startBtn.addEventListener('click',start);addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();drop()}});addEventListener('resize',resize);bestEl.textContent='РЕКОРД: '+best;resize();
+})();
+</script>
+
+</body></html>
